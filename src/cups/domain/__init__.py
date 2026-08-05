@@ -1,0 +1,1 @@
+# CUPS Domain — core entities

@@ -1,45 +1,89 @@
-# [Project name]
+# CUPS — Unified Subscription Platform
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+منصة الاشتراكات والـ Entitlements الموحَّدة لمنظومة المنتجات.
 
-## Run & Operate
+## نظرة عامة
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+CUPS تدير **Accounts، Projects، Subscriptions، Entitlements، وPlans** عبر منتجات متعددة.
+الوثائق الكاملة في [`docs/DOCUMENTATION-MAP.md`](docs/DOCUMENTATION-MAP.md).
 
-## Stack
+## القاعدة الجوهرية
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+> **Runtime MUST NEVER evaluate subscriptions directly.**
+> **Runtime MUST consume resolved entitlements only.**
 
-## Where things live
+## هيكل المشروع
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+```
+src/cups/          ← CUPS Platform (Python package — لا يعتمد على Titan)
+  domain/          ← Account, Project, Subscription, Entitlement
+  catalog/         ← تعريفات Entitlements لكل منتج (titan-framework, cups-bot)
+  engine/          ← Entitlement Resolution Engine
+  storage/         ← SQLiteStore + Repository abstractions
+  service.py       ← CUPSService — الواجهة الرئيسية
+  api/runtime.py   ← FastAPI Runtime API
 
-## Architecture decisions
+apps/cups-bot/     ← CUPS Bot (مبني فوق Titan — dogfooding)
+  handlers/        ← /start, /addbot, /plan
+  main.py          ← Entry point
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+docs/              ← الوثائق والمعمار والقرارات
+tests/             ← 37 اختباراً (domain + engine + api)
+```
 
-## Product
+## تشغيل الـ Runtime API
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+```bash
+# تثبيت الحزمة (مرة واحدة)
+pip install -e ".[dev]"
 
-## User preferences
+# تشغيل الـ API
+uvicorn cups.api.runtime:app --host 0.0.0.0 --port 8000
+```
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+Endpoint: `POST /entitlements/check`
+```json
+{ "account_id": 123, "project_id": "uuid-here", "entitlement": "atlas_access" }
+→ { "granted": false, "value": false }
+```
 
-## Gotchas
+## تشغيل CUPS Bot
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+```bash
+# متطلب: ضبط BOT_TOKEN في Replit Secrets
+PYTHONPATH=src python apps/cups-bot/main.py
+```
 
-## Pointers
+## تشغيل الاختبارات
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+```bash
+pytest
+# أو بتفاصيل:
+pytest -v
+```
+
+## المتطلبات البيئية
+
+| المتغير | المصدر | الاستخدام |
+|---|---|---|
+| `BOT_TOKEN` | Replit Secrets | Telegram bot token لـ CUPS Bot |
+
+## Phase الحالية
+
+**Phase 1** — الهيكل الأساسي مكتمل:
+- Account (ينشأ عند /start)
+- Project (يُسجَّل عبر /addbot، يُعطي project_id)
+- Subscription (Starter تلقائية، بلا دفع)
+- Entitlement Resolution (Subscription → Resolved Entitlements)
+- Runtime API (POST /entitlements/check)
+- CUPS Bot (/start, /addbot, /plan)
+
+**Phase التالية:** Phase 2 — Subscription Engine كامل (trial → active → grace → frozen → expired)
+
+## User Preferences
+
+- Full UUID4 للـ project_id (لا اختصار)
+- SQLite مع Repository abstraction للتخزين
+- CUPS Platform لا يعتمد على Titan — Titan مستهلك مستقبلي فقط
+- CUPS Bot يستخدم Titan كـ framework (dogfooding)
+- لا تغيير في بنية الوثائق (PHILOSOPHY, DOMAIN, ARCHITECTURE) إلا بقرار معماري صريح

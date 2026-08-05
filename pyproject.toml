@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cups-platform"
+authors = [
+    {name = "Waheed"},
+]
+version = "0.1.0"
+description = "CUPS — Unified Subscription Platform: Accounts, Projects, Subscriptions, Entitlements, and Plans"
+readme = "README.md"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+keywords = ["subscription", "entitlement", "platform", "monetization"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+# CUPS Platform core — no Titan dependency.
+# Titan depends on CUPS (via titan-extension-cups), not the other way around.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+# Bot application — Titan is a consumer of CUPS, not a dependency of the platform.
+# Only apps/cups-bot/ needs this.
+bot = [
+    "titan-lib @ git+https://github.com/WaheedFox/Titan.git",
+]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "httpx>=0.27",         # FastAPI TestClient
+]
+
+[project.urls]
+Homepage = "https://github.com/WaheedFox/CUPS"
+Issues = "https://github.com/WaheedFox/CUPS/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
