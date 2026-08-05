@@ -31,8 +31,9 @@ class TestAccount:
 
 
 class TestProductType:
-    def test_all_four_product_types_exist(self):
+    def test_all_product_types_exist(self):
         assert ProductType.TITAN_FRAMEWORK.value == "titan-framework"
+        assert ProductType.CUPS_BOT.value == "cups-bot"
         assert ProductType.BOT.value == "bot"
         assert ProductType.MINI_APP.value == "mini-app"
         assert ProductType.GAME.value == "game"

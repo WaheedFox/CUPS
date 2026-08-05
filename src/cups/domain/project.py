@@ -17,6 +17,7 @@ class ProductType(str, Enum):
     """Supported product types. Each has its own Entitlement catalog."""
 
     TITAN_FRAMEWORK = "titan-framework"
+    CUPS_BOT = "cups-bot"
     BOT = "bot"
     MINI_APP = "mini-app"
     GAME = "game"

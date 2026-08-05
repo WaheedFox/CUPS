@@ -12,6 +12,7 @@ import pytest
 
 from cups.catalog.titan_framework import TitanFrameworkCatalog
 from cups.catalog.cups_bot import CupsBotCatalog
+from cups.domain.project import ProductType
 from cups.domain.subscription import PlanName, Subscription, SubscriptionStatus
 from cups.engine.resolution import EntitlementEngine
 
@@ -164,6 +165,17 @@ class TestRuntimeIsolation:
 # ─── Catalog Completeness ────────────────────────────────────────────────────
 
 class TestCatalogCompleteness:
+    def test_active_product_types_have_matching_catalogs(self):
+        """Every active product must have a declared and registered catalog."""
+        catalogs = [TitanFrameworkCatalog(), CupsBotCatalog()]
+        catalog_products = {catalog.product for catalog in catalogs}
+        active_product_types = {
+            ProductType.TITAN_FRAMEWORK,
+            ProductType.CUPS_BOT,
+        }
+
+        assert catalog_products == {product.value for product in active_product_types}
+
     def test_titan_framework_all_plans_have_same_keys(self):
         catalog = TitanFrameworkCatalog()
         keys_per_plan = [set(catalog.resolve(p).keys()) for p in PlanName]
