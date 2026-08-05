@@ -39,7 +39,7 @@ _PLANS: dict[PlanName, ResolvedEntitlements] = {
         "team_members_limit": 0,
         "atlas_access": True,
         "lint_advanced": True,
-        "inspector_level": "advanced",
+        "inspector_level": "basic",
         "playground_access": True,
         "profiler_access": True,
         "timeline_access": True,

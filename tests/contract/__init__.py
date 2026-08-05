@@ -1,0 +1,1 @@
+"""Contract tests for cross-boundary consumer behavior."""

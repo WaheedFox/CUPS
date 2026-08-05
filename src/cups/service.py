@@ -134,6 +134,24 @@ class CUPSService:
     def get_subscription(self, account_id: int, product: str) -> Subscription | None:
         return self._store.subscriptions.get(account_id, product)
 
+    def set_subscription_for_test(
+        self,
+        account_id: int,
+        product: ProductType,
+        plan: PlanName,
+        status: SubscriptionStatus,
+    ) -> None:
+        """Internal test-only state change; this is not Billing."""
+        subscription = self.get_subscription(account_id, product.value)
+        if subscription is None:
+            raise KeyError(
+                f"No subscription for account {account_id} and product {product.value!r}."
+            )
+
+        subscription.plan = plan
+        subscription.status = status
+        self._store.subscriptions.update(subscription)
+
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
