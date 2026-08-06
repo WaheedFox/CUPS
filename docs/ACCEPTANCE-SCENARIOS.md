@@ -31,10 +31,14 @@ Runtime يجب أن يرى:
 
 Runtime يجب أن يرى:
   ✅ atlas_access = true
-  ✅ inspector_level = basic
+  ✅ inspector_level = advanced
   ✅ max_projects_total = 10
   ❌ team_access = true   (هذا Core فقط)
   ❌ Plan = "Plus"        (Runtime لا يرى Plan أبداً)
+
+الانتقال في Inspector:
+  Starter: basic
+  Plus: advanced
 ```
 
 ### Plus → Core
@@ -119,7 +123,7 @@ Projects التي تجاوزت حد Plus:
 
 Runtime يجب أن يرى:
   ✅ atlas_access = true            (Entitlements Plus كاملة)
-  ✅ inspector_level = basic
+  ✅ inspector_level = advanced
   ❌ status = "trial"               (Runtime لا يرى status)
   ❌ trial_ends_at                  (Runtime لا يعرف المواعيد)
 ```
