@@ -148,7 +148,7 @@ Extension (titan-extension-cups)
   "team_members_limit": 0,
   "atlas_access": false,
   "lint_advanced": false,
-  "inspector_level": "basic",
+  "inspector_level": "advanced",
   "playground_access": false,
   "profiler_access": false,
   "timeline_access": false,

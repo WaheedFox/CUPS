@@ -56,7 +56,7 @@ def titan(service, registered):
 
 def test_starter_closes_atlas_access(titan):
     assert titan.require("atlas_access") is False
-    assert titan.tier("inspector_level") == "basic"
+    assert titan.tier("inspector_level") == "advanced"
 
 
 def test_paid_plan_opens_feature_and_exposes_tier(titan, service, registered):

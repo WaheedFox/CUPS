@@ -41,7 +41,7 @@ class TestUpgradeScenarios:
         resolved = engine.resolve(sub)
 
         assert resolved["atlas_access"] is True
-        assert resolved["inspector_level"] == "basic"
+        assert resolved["inspector_level"] == "advanced"
         assert resolved["max_projects_total"] == 10
         assert resolved["team_access"] is False   # Core+ only
         # Runtime never sees plan name — only Entitlements
