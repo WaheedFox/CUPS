@@ -11,6 +11,12 @@ from uuid import UUID
 
 from ..domain.account import Account
 from ..domain.project import Project
+from ..domain.referral import (
+    Commission,
+    ReferralAttribution,
+    ReferralCode,
+    SimulatedPayment,
+)
 from ..domain.subscription import Subscription
 
 
@@ -42,3 +48,50 @@ class SubscriptionRepository(ABC):
 
     @abstractmethod
     def update(self, subscription: Subscription) -> None: ...
+
+
+class ReferralCodeRepository(ABC):
+    @abstractmethod
+    def get(self, code: str) -> ReferralCode | None: ...
+
+    @abstractmethod
+    def create(self, referral_code: ReferralCode) -> None: ...
+
+
+class ReferralAttributionRepository(ABC):
+    @abstractmethod
+    def get(self, attribution_id: str) -> ReferralAttribution | None: ...
+
+    @abstractmethod
+    def get_by_referred(self, account_id: int) -> ReferralAttribution | None: ...
+
+    @abstractmethod
+    def create(self, attribution: ReferralAttribution) -> None: ...
+
+    @abstractmethod
+    def update(self, attribution: ReferralAttribution) -> None: ...
+
+
+class SimulatedPaymentRepository(ABC):
+    @abstractmethod
+    def get(self, payment_id: str) -> SimulatedPayment | None: ...
+
+    @abstractmethod
+    def create(self, payment: SimulatedPayment) -> None: ...
+
+    @abstractmethod
+    def update(self, payment: SimulatedPayment) -> None: ...
+
+
+class CommissionRepository(ABC):
+    @abstractmethod
+    def get_by_payment(self, payment_id: str) -> Commission | None: ...
+
+    @abstractmethod
+    def get_by_referrer(self, account_id: int) -> list[Commission]: ...
+
+    @abstractmethod
+    def create(self, commission: Commission) -> None: ...
+
+    @abstractmethod
+    def update(self, commission: Commission) -> None: ...

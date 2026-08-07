@@ -148,6 +148,7 @@ docs/
 ├── DOMAIN.md                ← ماذا (الكيانات)
 ├── ARCHITECTURE.md          ← كيف (المعمار)
 ├── PLANS.md                 ← كم (الخطط والأسعار)
+├── REFERRAL-PROGRAM.md      ← عقد Referral / Commission المحاكى
 ├── IMPLEMENTATION-PLAN.md   ← خطة التنفيذ
 ├── UX-PSYCHOLOGY.md         ← كيف نُخاطب
 ├── EXPERIENCE-JOURNEY.md    ← ماذا يشعر المستخدم
