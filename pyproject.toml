@@ -36,7 +36,7 @@ dependencies = [
 # Bot application — Titan is a consumer of CUPS, not a dependency of the platform.
 # Only apps/cups-bot/ needs this.
 bot = [
-    "titan-lib @ git+https://github.com/WaheedFox/Titan.git",
+    "titan-framework @ git+https://github.com/WaheedFox/Titan.git",
 ]
 dev = [
     "pytest>=9.1.1",

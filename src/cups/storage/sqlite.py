@@ -21,6 +21,7 @@ from uuid import UUID
 
 from ..domain.account import Account
 from ..domain.project import Project, ProductType
+from ..domain.resources import Consumption, Quota, Reservation
 from ..domain.referral import (
     Commission,
     CommissionStatus,
@@ -123,6 +124,39 @@ CREATE TABLE IF NOT EXISTS commissions (
     FOREIGN KEY (attribution_id) REFERENCES referral_attributions(attribution_id),
     FOREIGN KEY (payment_id) REFERENCES simulated_payments(payment_id)
 );
+
+CREATE TABLE IF NOT EXISTS reservations (
+    reservation_id  TEXT PRIMARY KEY,
+    account_id      INTEGER NOT NULL,
+    project_id      TEXT NOT NULL,
+    resource_key    TEXT NOT NULL,
+    quantity        INTEGER NOT NULL CHECK (quantity > 0),
+    status          TEXT NOT NULL,
+    expires_at      TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    UNIQUE (account_id, project_id, resource_key, idempotency_key),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id),
+    FOREIGN KEY (project_id) REFERENCES projects(project_id)
+);
+
+CREATE TABLE IF NOT EXISTS consumptions (
+    consumption_id  TEXT PRIMARY KEY,
+    usage_record_id TEXT NOT NULL UNIQUE,
+    account_id      INTEGER NOT NULL,
+    project_id      TEXT NOT NULL,
+    resource_key    TEXT NOT NULL,
+    quantity        INTEGER NOT NULL CHECK (quantity >= 0),
+    reservation_id  TEXT,
+    source_event_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    occurred_at     TEXT NOT NULL,
+    committed_at    TEXT NOT NULL,
+    UNIQUE (account_id, project_id, resource_key, idempotency_key),
+    FOREIGN KEY (account_id) REFERENCES accounts(account_id),
+    FOREIGN KEY (project_id) REFERENCES projects(project_id),
+    FOREIGN KEY (reservation_id) REFERENCES reservations(reservation_id)
+);
 """
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -183,6 +217,165 @@ class SQLiteStore:
 
     def close(self) -> None:
         self._conn.close()
+
+    def get_quota(
+        self, account_id: int, project_id: UUID, resource_key: str,
+        limit: int | None,
+    ) -> Quota:
+        project = str(project_id)
+        used = self._conn.execute(
+            "SELECT COALESCE(SUM(quantity), 0) FROM consumptions "
+            "WHERE account_id = ? AND project_id = ? AND resource_key = ?",
+            (account_id, project, resource_key),
+        ).fetchone()[0]
+        reserved = self._conn.execute(
+            "SELECT COALESCE(SUM(quantity), 0) FROM reservations "
+            "WHERE account_id = ? AND project_id = ? AND resource_key = ? "
+            "AND status = 'active' AND expires_at > ?",
+            (account_id, project, resource_key, datetime.utcnow().isoformat()),
+        ).fetchone()[0]
+        remaining = None if limit is None else max(limit - used - reserved, 0)
+        return Quota(account_id, project_id, resource_key, limit, used, reserved, remaining)
+
+    def create_reservation(
+        self, reservation: Reservation, limit: int | None,
+    ) -> Reservation:
+        """Create a reservation under an immediate SQLite transaction."""
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            existing = self._conn.execute(
+                "SELECT * FROM reservations WHERE account_id = ? AND project_id = ? "
+                "AND resource_key = ? AND idempotency_key = ?",
+                (reservation.account_id, str(reservation.project_id),
+                 reservation.resource_key, reservation.idempotency_key),
+            ).fetchone()
+            if existing:
+                if int(existing["quantity"]) != reservation.quantity:
+                    raise ValueError("IDEMPOTENCY_CONFLICT")
+                self._conn.commit()
+                return _row_to_reservation(existing)
+            now = datetime.utcnow().isoformat()
+            self._conn.execute(
+                "UPDATE reservations SET status = 'expired' "
+                "WHERE status = 'active' AND expires_at <= ?", (now,)
+            )
+            used = self._conn.execute(
+                "SELECT COALESCE(SUM(quantity), 0) FROM consumptions "
+                "WHERE account_id = ? AND project_id = ? AND resource_key = ?",
+                (reservation.account_id, str(reservation.project_id),
+                 reservation.resource_key),
+            ).fetchone()[0]
+            reserved = self._conn.execute(
+                "SELECT COALESCE(SUM(quantity), 0) FROM reservations "
+                "WHERE account_id = ? AND project_id = ? AND resource_key = ? "
+                "AND status = 'active'",
+                (reservation.account_id, str(reservation.project_id),
+                 reservation.resource_key),
+            ).fetchone()[0]
+            if limit is not None and used + reserved + reservation.quantity > limit:
+                raise ValueError("QUOTA_EXCEEDED")
+            self._conn.execute(
+                "INSERT INTO reservations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (reservation.reservation_id, reservation.account_id,
+                 str(reservation.project_id), reservation.resource_key,
+                 reservation.quantity, reservation.status,
+                 reservation.expires_at.isoformat(), reservation.idempotency_key,
+                 now),
+            )
+            self._conn.commit()
+            return reservation
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def create_consumption(
+        self, consumption: Consumption, limit: int | None,
+    ) -> Consumption:
+        """Atomically deduplicate, validate, and commit resource consumption."""
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            key = (consumption.account_id, str(consumption.project_id),
+                   consumption.resource_key, consumption.idempotency_key)
+            existing = self._conn.execute(
+                "SELECT * FROM consumptions WHERE account_id = ? AND project_id = ? "
+                "AND resource_key = ? AND idempotency_key = ?", key,
+            ).fetchone()
+            if existing:
+                same = (
+                    int(existing["quantity"]) == consumption.quantity
+                    and existing["reservation_id"] == consumption.reservation_id
+                    and existing["source_event_id"] == consumption.source_event_id
+                )
+                if not same:
+                    raise ValueError("IDEMPOTENCY_CONFLICT")
+                self._conn.commit()
+                return _row_to_consumption(existing, limit, True, self._conn)
+
+            now = datetime.utcnow().isoformat()
+            self._conn.execute(
+                "UPDATE reservations SET status = 'expired' "
+                "WHERE status = 'active' AND expires_at <= ?", (now,)
+            )
+            if consumption.reservation_id:
+                reservation = self._conn.execute(
+                    "SELECT * FROM reservations WHERE reservation_id = ?",
+                    (consumption.reservation_id,),
+                ).fetchone()
+                if reservation is None:
+                    raise ValueError("RESERVATION_NOT_FOUND")
+                if (
+                    reservation["account_id"] != consumption.account_id
+                    or reservation["project_id"] != str(consumption.project_id)
+                    or reservation["resource_key"] != consumption.resource_key
+                ):
+                    raise ValueError("RESERVATION_NOT_FOUND")
+                if reservation["status"] != "active":
+                    raise ValueError("RESERVATION_EXPIRED")
+                if consumption.quantity > int(reservation["quantity"]):
+                    raise ValueError("CONSUMPTION_EXCEEDS_RESERVATION")
+            used = self._conn.execute(
+                "SELECT COALESCE(SUM(quantity), 0) FROM consumptions "
+                "WHERE account_id = ? AND project_id = ? AND resource_key = ?",
+                (consumption.account_id, str(consumption.project_id),
+                 consumption.resource_key),
+            ).fetchone()[0]
+            reserved = self._conn.execute(
+                "SELECT COALESCE(SUM(quantity), 0) FROM reservations "
+                "WHERE account_id = ? AND project_id = ? AND resource_key = ? "
+                "AND status = 'active'",
+                (consumption.account_id, str(consumption.project_id),
+                 consumption.resource_key),
+            ).fetchone()[0]
+            if (
+                not consumption.reservation_id
+                and limit is not None
+                and used + reserved + consumption.quantity > limit
+            ):
+                raise ValueError("QUOTA_EXCEEDED")
+            self._conn.execute(
+                "INSERT INTO consumptions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (consumption.consumption_id, consumption.usage_record_id,
+                 consumption.account_id, str(consumption.project_id),
+                 consumption.resource_key, consumption.quantity,
+                 consumption.reservation_id, consumption.source_event_id,
+                 consumption.idempotency_key, consumption.occurred_at.isoformat(),
+                 consumption.committed_at.isoformat()),
+            )
+            if consumption.reservation_id:
+                self._conn.execute(
+                    "UPDATE reservations SET status = 'committed' "
+                    "WHERE reservation_id = ?", (consumption.reservation_id,)
+                )
+            self._conn.commit()
+            return _row_to_consumption(
+                self._conn.execute(
+                    "SELECT * FROM consumptions WHERE consumption_id = ?",
+                    (consumption.consumption_id,),
+                ).fetchone(), limit, False, self._conn,
+            )
+        except Exception:
+            self._conn.rollback()
+            raise
 
 
 # ─── Account Repository ───────────────────────────────────────────────────────
@@ -525,3 +718,52 @@ class SQLiteCommissionRepo(CommissionRepository):
             created_at=datetime.fromisoformat(row["created_at"]),
             reversed_at=_parse_dt(row["reversed_at"]),
         )
+
+
+def _row_to_reservation(row: sqlite3.Row) -> Reservation:
+    return Reservation(
+        reservation_id=row["reservation_id"],
+        account_id=row["account_id"],
+        project_id=UUID(row["project_id"]),
+        resource_key=row["resource_key"],
+        quantity=row["quantity"],
+        status=row["status"],
+        expires_at=datetime.fromisoformat(row["expires_at"]),
+        idempotency_key=row["idempotency_key"],
+    )
+
+
+def _row_to_consumption(
+    row: sqlite3.Row,
+    limit: int | None,
+    already_committed: bool,
+    conn: sqlite3.Connection,
+) -> Consumption:
+    used = conn.execute(
+        "SELECT COALESCE(SUM(quantity), 0) FROM consumptions "
+        "WHERE account_id = ? AND project_id = ? AND resource_key = ?",
+        (row["account_id"], row["project_id"], row["resource_key"]),
+    ).fetchone()[0]
+    reserved = conn.execute(
+        "SELECT COALESCE(SUM(quantity), 0) FROM reservations "
+        "WHERE account_id = ? AND project_id = ? AND resource_key = ? "
+        "AND status = 'active' AND expires_at > ?",
+        (row["account_id"], row["project_id"], row["resource_key"],
+         datetime.utcnow().isoformat()),
+    ).fetchone()[0]
+    remaining = None if limit is None else max(limit - used - reserved, 0)
+    return Consumption(
+        consumption_id=row["consumption_id"],
+        usage_record_id=row["usage_record_id"],
+        account_id=row["account_id"],
+        project_id=UUID(row["project_id"]),
+        resource_key=row["resource_key"],
+        quantity=row["quantity"],
+        reservation_id=row["reservation_id"],
+        source_event_id=row["source_event_id"],
+        idempotency_key=row["idempotency_key"],
+        occurred_at=datetime.fromisoformat(row["occurred_at"]),
+        committed_at=datetime.fromisoformat(row["committed_at"]),
+        remaining=remaining,
+        already_committed=already_committed,
+    )

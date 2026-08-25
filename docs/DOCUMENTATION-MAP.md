@@ -22,7 +22,8 @@ DOMAIN.md
 ```
 
 كل مصطلح رسمي في CUPS له تعريف هنا: Account، Project، Plan، Entitlement،
-Entitlement Resolution، Capability، Subscription، Team.
+Entitlement Resolution، Capability، Subscription، Team، Resource، Quota،
+Reservation، Consumption.
 
 ---
 
@@ -78,6 +79,19 @@ ARCHITECTURE.md
 
 يشمل: Decision Flow، Source of Truth، Authority Rule،
 Consistency Model، Entitlement Resolution.
+
+## أريد تغيير أو إضافة مسار موارد
+
+اقرأ:
+
+```text
+DOMAIN.md
+ARCHITECTURE.md
+ADRs/ADR-008-atomic-consumption.md
+```
+
+لا تفصل idempotency lookup عن التحقق والتسجيل؛ إعادة الطلب يجب أن تعيد النتيجة
+الملتزم بها سابقًا.
 
 ---
 

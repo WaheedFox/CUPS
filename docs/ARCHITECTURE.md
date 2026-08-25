@@ -250,6 +250,28 @@ Expiration / Invalidation ← عند تغيير الاشتراك
 
 ---
 
+## Resource Usage — ذرّية Consumption
+
+CUPS لا ينفذ العملية التي يستهلك المنتج من أجلها المورد. لكنه يملك قرار
+الحجز وتسجيل الاستهلاك، ولذلك يجب أن يكون تسجيل Consumption ذريًا:
+
+```text
+idempotency lookup
+    ↓
+validate Reservation / Quota
+    ↓
+commit Consumption + usage state
+    ↓
+return the committed quota result
+```
+
+إعادة الطلب بنفس `idempotency_key` ونفس payload تعيد النتيجة الأصلية ولا تخصم
+المورد مرة أخرى. اختلاف payload مع المفتاح نفسه يرفض بـ
+`IDEMPOTENCY_CONFLICT`. يضمن ذلك كل من transaction وقيد uniqueness في التخزين؛
+أما `request_id` فهو للتتبع فقط.
+
+---
+
 ## هيكل المستودع
 
 ```

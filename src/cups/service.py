@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import calendar
 from datetime import datetime
+from threading import RLock
 from uuid import UUID, uuid4
 
 from .catalog.cups_bot import CupsBotCatalog
@@ -17,6 +18,7 @@ from .catalog.titan_framework import TitanFrameworkCatalog
 from .domain.account import Account
 from .domain.entitlement import EntitlementValue, ResolvedEntitlements
 from .domain.project import Project, ProductType
+from .domain.resources import Consumption, Quota, Reservation
 from .domain.referral import (
     Commission,
     CommissionStatus,
@@ -48,6 +50,7 @@ class CUPSService:
             CupsBotCatalog(),
         ])
         self._referral_config = referral_config or ReferralProgramConfig()
+        self._resource_lock = RLock()
 
     # ─── Account ─────────────────────────────────────────────────────────────
 
@@ -144,6 +147,111 @@ class CUPSService:
         value = resolved[entitlement]
         granted = _compute_granted(value)
         return granted, value
+
+    # ─── Resource quota / usage ────────────────────────────────────────────────
+
+    def get_quota(
+        self, account_id: int, project_id: UUID, resource_key: str,
+    ) -> Quota:
+        project = self._owned_project(account_id, project_id)
+        limit = self._resource_limit(account_id, project.product.value, resource_key)
+        return self._store.get_quota(account_id, project_id, resource_key, limit)
+
+    def reserve_resource(
+        self,
+        account_id: int,
+        project_id: UUID,
+        resource_key: str,
+        quantity: int,
+        idempotency_key: str,
+        expires_at: datetime,
+    ) -> Reservation:
+        with self._resource_lock:
+            if quantity <= 0:
+                raise ValueError("INVALID_REQUEST")
+            project = self._owned_project(account_id, project_id)
+            limit = self._resource_limit(account_id, project.product.value, resource_key)
+            return self._store.create_reservation(
+                Reservation(
+                    reservation_id=str(uuid4()),
+                    account_id=account_id,
+                    project_id=project_id,
+                    resource_key=resource_key,
+                    quantity=quantity,
+                    status="active",
+                    expires_at=expires_at,
+                    idempotency_key=idempotency_key,
+                ),
+                limit,
+            )
+
+    def record_consumption(
+        self,
+        account_id: int,
+        project_id: UUID,
+        resource_key: str,
+        quantity: int,
+        reservation_id: str | None,
+        source_event_id: str,
+        idempotency_key: str,
+        occurred_at: datetime | None = None,
+    ) -> Consumption:
+        with self._resource_lock:
+            return self._record_consumption(
+                account_id, project_id, resource_key, quantity, reservation_id,
+                source_event_id, idempotency_key, occurred_at,
+            )
+
+    def _record_consumption(
+        self,
+        account_id: int,
+        project_id: UUID,
+        resource_key: str,
+        quantity: int,
+        reservation_id: str | None,
+        source_event_id: str,
+        idempotency_key: str,
+        occurred_at: datetime | None = None,
+    ) -> Consumption:
+        if quantity < 0 or not idempotency_key or not source_event_id:
+            raise ValueError("INVALID_REQUEST")
+        project = self._owned_project(account_id, project_id)
+        limit = self._resource_limit(account_id, project.product.value, resource_key)
+        now = occurred_at or datetime.utcnow()
+        return self._store.create_consumption(
+            Consumption(
+                consumption_id=str(uuid4()),
+                usage_record_id=str(uuid4()),
+                account_id=account_id,
+                project_id=project_id,
+                resource_key=resource_key,
+                quantity=quantity,
+                reservation_id=reservation_id,
+                source_event_id=source_event_id,
+                idempotency_key=idempotency_key,
+                occurred_at=now,
+                committed_at=datetime.utcnow(),
+                remaining=None,
+            ),
+            limit,
+        )
+
+    def _owned_project(self, account_id: int, project_id: UUID) -> Project:
+        project = self._store.projects.get(project_id)
+        if project is None:
+            raise KeyError(f"Project {project_id} not found.")
+        if project.owner_id != account_id:
+            raise PermissionError("PROJECT_OWNERSHIP_REQUIRED")
+        return project
+
+    def _resource_limit(self, account_id: int, product: str, resource_key: str) -> int | None:
+        if resource_key != "projects":
+            raise ValueError("UNKNOWN_RESOURCE")
+        resolved = self.get_resolved_entitlements(account_id, product)
+        value = resolved.get("max_projects_total")
+        if not isinstance(value, int):
+            raise ValueError("METER_INVALID")
+        return value
 
     # ─── Subscription ─────────────────────────────────────────────────────────
 

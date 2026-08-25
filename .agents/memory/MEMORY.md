@@ -1,0 +1,2 @@
+- [Atomic consumption](consumption-atomicity.md) — Consumption must atomically deduplicate, validate quota, commit usage, and replay the original result.
+- [Cache discipline](cache-discipline.md) — Do not introduce cache complexity until a real performance or distribution need exists.
